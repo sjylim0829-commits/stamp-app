@@ -2,7 +2,11 @@ import os
 import fitz  # PyMuPDF
 from typing import Dict, Any, Optional
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_FONT_PATH = os.path.join(BASE_DIR, "fonts", "malgun.ttf")
+
 DEFAULT_FONT_PATHS = [
+    PROJECT_FONT_PATH,
     "C:\\Windows\\Fonts\\malgun.ttf",
     "C:\\Windows\\Fonts\\gulim.ttc",
     "C:\\Windows\\Fonts\\batang.ttc",
@@ -21,6 +25,9 @@ class PDFOverlayEngine:
         self.font_path = font_path or find_system_korean_font()
 
     def generate_filled_pdf(self, pdf_path: str, template: Dict[str, Any], submission_data: Dict[str, Any]) -> bytes:
+        if not os.path.isabs(pdf_path):
+            pdf_path = os.path.join(BASE_DIR, pdf_path)
+
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"기본 양식 PDF 파일을 찾을 수 없습니다: {pdf_path}")
 
@@ -54,12 +61,11 @@ class PDFOverlayEngine:
                 width = float(field.get("width", 50))
                 height = float(field.get("height", 14))
 
-                # [피드백 1] 초록색 수기작성 영역: (서명 또는 인) 글자가 100% 선명하게 비치도록 반투명 옅은 음영 오버레이
+                # 초록색 수기작성 반투명 음영 오버레이
                 if is_green:
                     rect_shading = fitz.Rect(x - 2, y - 2, x + width + 2, y + font_size + 2)
                     shape = page.new_shape()
                     shape.draw_rect(rect_shading)
-                    # 옅은 민트/회색 반투명 음영 (fill_opacity=0.30) -> 원본 글자가 그대로 노출됨!
                     shape.finish(fill=(0.80, 0.92, 0.85), fill_opacity=0.30, color=None)
                     shape.commit(overlay=True)
                     continue
@@ -116,6 +122,8 @@ class PDFOverlayEngine:
         return output_bytes
 
     def render_pdf_page_as_png(self, pdf_path: str, page_num: int = 0) -> bytes:
+        if not os.path.isabs(pdf_path):
+            pdf_path = os.path.join(BASE_DIR, pdf_path)
         doc = fitz.open(pdf_path)
         if page_num >= len(doc):
             page_num = 0

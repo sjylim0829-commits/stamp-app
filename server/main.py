@@ -1,18 +1,26 @@
 import os
-import json
-import uuid
-from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Response, Depends
+import shutil
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
+from typing import Dict, Any, Optional, List
 
 from templates_manager import TemplateManager
-from validator import FormValidator
 from pdf_engine import PDFOverlayEngine
+from validator import FormValidator
 
-app = FastAPI(title="Stamp Form Filler API", version="1.1.0")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+app = FastAPI(
+    title="Stamp PDF Engine API",
+    description="학교 각종 서식 자동 입력 및 PDF 오버레이 엔진 백엔드",
+    version="1.0.0"
+)
+
+# CORS 설정 (Vercel 및 로컬 개발용)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,128 +29,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-template_mgr = TemplateManager()
+template_manager = TemplateManager()
 pdf_engine = PDFOverlayEngine()
+validator = FormValidator()
 
-class FieldModel(BaseModel):
-    id: str
-    label: str
-    page: int = 0
-    x: float
-    y: float
-    width: float = 200.0
-    height: float = 30.0
-    font_size: float = 12.0
-    required: bool = False
-    multiline: bool = False
-    placeholder: str = ""
-
-class TemplateModel(BaseModel):
-    id: str
-    name: str
-    description: str = ""
-    pdf_filename: str
-    page_count: int = 1
-    fields: List[FieldModel]
-
-class SubmissionModel(BaseModel):
+class PDFSubmissionRequest(BaseModel):
     data: Dict[str, Any]
 
+@app.get("/")
+def read_root():
+    return {"message": "Stamp PDF Generation Server is Running Successfully!"}
+
 @app.get("/api/templates")
-def get_templates():
-    return template_mgr.get_all_templates()
+def list_templates():
+    return template_manager.get_all_templates()
 
 @app.get("/api/templates/{template_id}")
 def get_template(template_id: str):
-    t = template_mgr.get_template(template_id)
-    if not t:
-        raise HTTPException(status_code=404, detail="양식을 찾을 수 없습니다.")
-    return t
-
-@app.post("/api/templates/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
-
-    filename = f"{uuid.uuid4().hex}_{file.filename}"
-    content = await file.read()
-    filepath = template_mgr.save_pdf_file(content, filename)
-
-    import fitz
-    doc = fitz.open(filepath)
-    page_count = len(doc)
-    doc.close()
-
-    return {
-        "pdf_filename": filename,
-        "original_filename": file.filename,
-        "page_count": page_count
-    }
+    template = template_manager.get_template_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
+    return template
 
 @app.post("/api/templates")
-def save_template(template: TemplateModel):
-    saved = template_mgr.save_template(template.dict())
-    return saved
-
-@app.delete("/api/templates/{template_id}")
-def delete_template(template_id: str):
-    success = template_mgr.delete_template(template_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="삭제할 양식을 찾을 수 없습니다.")
-    return {"status": "success", "message": "양식이 삭제되었습니다."}
-
-@app.get("/api/templates/{template_id}/preview-image")
-def get_template_page_image(template_id: str, page: int = 0):
-    t = template_mgr.get_template(template_id)
-    if not t:
-        raise HTTPException(status_code=404, detail="양식을 찾을 수 없습니다.")
-
-    pdf_path = os.path.join(template_mgr.UPLOADS_DIR, t["pdf_filename"])
-    if not os.path.exists(pdf_path):
-        raise HTTPException(status_code=404, detail="PDF 파일이 존재하지 않습니다.")
-
-    try:
-        png_bytes = pdf_engine.render_pdf_page_as_png(pdf_path, page_num=page)
-        return Response(content=png_bytes, media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"이미지 변환 오류: {str(e)}")
+def create_or_update_template(template_data: Dict[str, Any]):
+    saved = template_manager.save_template(template_data)
+    return {"status": "success", "template": saved}
 
 @app.post("/api/fill-pdf/{template_id}")
-def fill_pdf(template_id: str, submission: SubmissionModel):
-    t = template_mgr.get_template(template_id)
-    if not t:
-        raise HTTPException(status_code=404, detail="양식을 찾을 수 없습니다.")
+def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
+    template = template_manager.get_template_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="지정된 템플릿을 찾을 수 없습니다.")
 
-    sub_data = submission.data
+    submission_data = request.data or {}
 
-    # 필수 항목 및 날짜 순서 유효성 검사
-    is_valid, missing_labels, field_errors = FormValidator.validate_submission(t, sub_data)
-
-    if not is_valid:
-        error_msg = f"입력 오류 또는 날짜 순서 오류가 발생했습니다: {', '.join(missing_labels)}"
+    # Validation
+    val_result = validator.validate_submission(template, submission_data)
+    if not val_result.is_valid:
         raise HTTPException(
             status_code=400,
             detail={
-                "message": error_msg,
-                "missing_fields": missing_labels,
-                "field_errors": field_errors
+                "message": "필수 입력 사항 누락 또는 날짜 순서 위반으로 PDF 출력이 차단되었습니다.",
+                "missing_fields": val_result.missing_fields,
+                "field_errors": val_result.field_errors
             }
         )
 
-    pdf_path = os.path.join(template_mgr.UPLOADS_DIR, t["pdf_filename"])
+    pdf_filename = template.get("pdf_filename")
+    pdf_path = os.path.join(UPLOAD_DIR, pdf_filename)
+
+    if not os.path.exists(pdf_path):
+        # Fallback to root or default base pdf
+        alt_pdf_path = os.path.join(BASE_DIR, pdf_filename)
+        if os.path.exists(alt_pdf_path):
+            pdf_path = alt_pdf_path
+        else:
+            raise HTTPException(status_code=404, detail=f"기본 양식 PDF 파일({pdf_filename})이 서버에 존재하지 않습니다.")
+
     try:
-        filled_bytes = pdf_engine.generate_filled_pdf(pdf_path, t, sub_data)
+        output_pdf_bytes = pdf_engine.generate_filled_pdf(pdf_path, template, submission_data)
+        return Response(
+            content=output_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=Stamp_{template_id}.pdf"
+            }
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF 생성 오류: {str(e)}")
-
-    output_filename = f"Stamp_{t['name']}.pdf"
-    import urllib.parse
-    encoded_filename = urllib.parse.quote(output_filename)
-
-    return Response(
-        content=filled_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
-        }
-    )
+        raise HTTPException(status_code=500, detail=f"PDF 생성 처리 중 오류 발생: {str(e)}")
