@@ -11,6 +11,7 @@ from pdf_engine import PDFOverlayEngine
 from validator import FormValidator
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -20,7 +21,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS 설정 (Vercel 및 로컬 개발용)
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,6 +36,23 @@ validator = FormValidator()
 
 class PDFSubmissionRequest(BaseModel):
     data: Dict[str, Any]
+
+def find_pdf_file(pdf_filename: str) -> str:
+    candidate_paths = [
+        os.path.join(UPLOAD_DIR, pdf_filename),
+        os.path.join(BASE_DIR, pdf_filename),
+        os.path.join(BASE_DIR, "data", pdf_filename),
+        os.path.join(ROOT_DIR, pdf_filename),
+        os.path.join(ROOT_DIR, "api", pdf_filename),
+        os.path.join(os.getcwd(), pdf_filename),
+        os.path.join(os.getcwd(), "server", "uploads", pdf_filename),
+        os.path.join(os.getcwd(), "server", pdf_filename),
+        os.path.join(os.getcwd(), "server", "data", pdf_filename),
+    ]
+    for path in candidate_paths:
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(f"기본 양식 PDF 파일({pdf_filename})을 모든 서버 탐색 경로에서 찾을 수 없습니다.")
 
 @app.get("/")
 def read_root():
@@ -76,16 +94,12 @@ def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
             }
         )
 
-    pdf_filename = template.get("pdf_filename")
-    pdf_path = os.path.join(UPLOAD_DIR, pdf_filename)
-
-    if not os.path.exists(pdf_path):
-        # Fallback to root or default base pdf
-        alt_pdf_path = os.path.join(BASE_DIR, pdf_filename)
-        if os.path.exists(alt_pdf_path):
-            pdf_path = alt_pdf_path
-        else:
-            raise HTTPException(status_code=404, detail=f"기본 양식 PDF 파일({pdf_filename})이 서버에 존재하지 않습니다.")
+    pdf_filename = template.get("pdf_filename", "2026_absence_report_base.pdf")
+    
+    try:
+        pdf_path = find_pdf_file(pdf_filename)
+    except FileNotFoundError as fnf_err:
+        raise HTTPException(status_code=404, detail=str(fnf_err))
 
     try:
         output_pdf_bytes = pdf_engine.generate_filled_pdf(pdf_path, template, submission_data)
@@ -97,4 +111,4 @@ def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF 생성 처리 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"PDF 오버레이 생성 중 오류 발생: {str(e)}")

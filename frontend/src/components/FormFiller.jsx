@@ -205,15 +205,30 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        const detail = errData.detail || {};
-        setValidationError({
-          message: detail.message || '필수 항목 누락 또는 날짜 순서 오류로 PDF 출력이 차단되었습니다.',
-          missingFields: detail.missing_fields || [],
-        });
-        if (detail.field_errors) {
-          setFieldErrors(detail.field_errors);
+        let errMessage = '필수 항목 누락 또는 날짜 순서 오류로 PDF 출력이 차단되었습니다.';
+        let missingFieldsList = [];
+        let fieldErrs = {};
+
+        try {
+          const errData = await response.json();
+          const detail = errData.detail || {};
+          if (typeof detail === 'string') {
+            errMessage = detail;
+          } else {
+            errMessage = detail.message || errMessage;
+            missingFieldsList = detail.missing_fields || [];
+            fieldErrs = detail.field_errors || {};
+          }
+        } catch (_) {
+          const textErr = await response.text();
+          errMessage = textErr || `서버 오류가 발생했습니다 (${response.status})`;
         }
+
+        setValidationError({
+          message: errMessage,
+          missingFields: missingFieldsList,
+        });
+        setFieldErrors(fieldErrs);
         setIsGenerating(false);
         return;
       }
