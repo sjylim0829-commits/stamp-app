@@ -1,6 +1,7 @@
 import os
 import shutil
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+import traceback
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
@@ -37,6 +38,21 @@ validator = FormValidator()
 class PDFSubmissionRequest(BaseModel):
     data: Dict[str, Any]
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print("=== SERVER EXCEPTION CAUGHT ===")
+    print(tb)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "message": f"서버 오버레이 처리 예외: {str(exc)}",
+                "traceback": tb
+            }
+        }
+    )
+
 def find_pdf_file(pdf_filename: str) -> str:
     candidate_paths = [
         os.path.join(UPLOAD_DIR, pdf_filename),
@@ -52,7 +68,7 @@ def find_pdf_file(pdf_filename: str) -> str:
     for path in candidate_paths:
         if os.path.exists(path):
             return path
-    raise FileNotFoundError(f"기본 양식 PDF 파일({pdf_filename})을 모든 서버 탐색 경로에서 찾을 수 없습니다.")
+    raise FileNotFoundError(f"기본 양식 PDF 파일({pdf_filename})을 서버 경로에서 찾을 수 없습니다.")
 
 @app.get("/")
 def read_root():
@@ -111,4 +127,5 @@ def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF 오버레이 생성 중 오류 발생: {str(e)}")
+        tb_str = traceback.format_exc()
+        raise HTTPException(status_code=500, detail={"message": f"PDF 렌더링 중 오류 발생: {str(e)}", "traceback": tb_str})

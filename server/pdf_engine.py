@@ -46,8 +46,17 @@ class PDFOverlayEngine:
                 continue
 
             font_name = "KoreanFont"
+            font_loaded = False
+
             if self.font_path and os.path.exists(self.font_path):
-                page.insert_font(fontname=font_name, fontfile=self.font_path)
+                try:
+                    page.insert_font(fontname=font_name, fontfile=self.font_path)
+                    font_loaded = True
+                except Exception as font_err:
+                    print(f"Font loading fallback: {font_err}")
+
+            if not font_loaded:
+                font_name = "helv"  # Fallback font in PyMuPDF
 
             page_fields = fields_by_page[page_idx]
             for field in page_fields:

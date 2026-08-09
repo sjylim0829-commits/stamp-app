@@ -209,8 +209,10 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
         let missingFieldsList = [];
         let fieldErrs = {};
 
+        // Body stream을 정확히 1번만 읽어 파싱 에러 방지
+        const rawText = await response.text();
         try {
-          const errData = await response.json();
+          const errData = JSON.parse(rawText);
           const detail = errData.detail || {};
           if (typeof detail === 'string') {
             errMessage = detail;
@@ -220,8 +222,7 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
             fieldErrs = detail.field_errors || {};
           }
         } catch (_) {
-          const textErr = await response.text();
-          errMessage = textErr || `서버 오류가 발생했습니다 (${response.status})`;
+          errMessage = rawText || `서버 오류가 발생했습니다 (${response.status})`;
         }
 
         setValidationError({
