@@ -99,14 +99,14 @@ def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
     submission_data = request.data or {}
 
     # Validation
-    val_result = validator.validate_submission(template, submission_data)
-    if not val_result.is_valid:
+    is_valid, missing_fields, field_errors = validator.validate_submission(template, submission_data)
+    if not is_valid:
         raise HTTPException(
             status_code=400,
             detail={
                 "message": "필수 입력 사항 누락 또는 날짜 순서 위반으로 PDF 출력이 차단되었습니다.",
-                "missing_fields": val_result.missing_fields,
-                "field_errors": val_result.field_errors
+                "missing_fields": missing_fields,
+                "field_errors": field_errors
             }
         )
 
