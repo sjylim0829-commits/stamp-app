@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Production build outputs
+dist/
+build/
+
+# Vercel
+.vercel/
+
+# Temporary test outputs and images
+*.png
+*.json
+!server/data/*.json
+!frontend/package.json
+!frontend/package-lock.json
+2026_결석신고서_*.pdf
+test_filled_output.pdf
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
