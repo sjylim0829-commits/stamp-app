@@ -278,6 +278,7 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
     const isDaysCount = field.id === 'days_count';
     const isSignName = field.id === 'sign_name';
     const isAbsenceType = field.id === 'absence_type';
+    const isCheckboxAgree = field.id === 'privacy_agree' || field.id === 'sensitive_agree';
 
     return (
       <div className={`form-group ${field.multiline ? 'full-width' : ''}`}>
@@ -344,6 +345,35 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
               ⭕ 인정 (글자 위 동그라미 표식)
             </label>
           </div>
+        ) : isCheckboxAgree ? (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              cursor: 'pointer',
+              padding: '12px 16px',
+              background: formData[field.id] === 'V' ? '#eff6ff' : '#f8fafc',
+              border: `1.5px solid ${formData[field.id] === 'V' ? '#3b82f6' : '#cbd5e1'}`,
+              borderRadius: '10px',
+              transition: 'all 0.2s ease',
+              userSelect: 'none'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={formData[field.id] === 'V'}
+              onChange={(e) => handleInputChange(field.id, e.target.checked ? 'V' : '')}
+              style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
+            />
+            <span style={{
+              fontSize: '0.95rem',
+              fontWeight: '700',
+              color: formData[field.id] === 'V' ? '#1d4ed8' : '#64748b'
+            }}>
+              {formData[field.id] === 'V' ? '✅ 동의함 (V 표시됨)' : '동의 체크 시 V 표시가 PDF에 입력됩니다'}
+            </span>
+          </label>
         ) : field.multiline ? (
           <textarea
             rows={3}
