@@ -51,6 +51,17 @@ class FormValidator:
                     missing_labels.append("담임 확인 일자 (날짜 순서 오류)")
                     field_errors["teacher_confirm_day"] = msg
 
+            # 조건 5: 담임 확인 일자가 결석 종료일로부터 5일 이내인지 점검
+            if em > 0 and ed > 0 and tm > 0 and td > 0:
+                end_dt = date(year, em, ed)
+                tch_dt = date(year, tm, td)
+                diff_days = (tch_dt - end_dt).days
+
+                if diff_days > 5:
+                    msg = f"담임 확인 일자가 결석 종료일로부터 {diff_days}일 경과했습니다. 5일 이내여야 합니다!"
+                    missing_labels.append("담임 확인 일자 (결석종료일로부터 5일 초과)")
+                    field_errors["teacher_confirm_day"] = msg
+
         except (ValueError, TypeError):
             pass  # 날짜 변환 실패 시 필수값 검증에서 처리됨
 

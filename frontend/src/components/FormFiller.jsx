@@ -181,6 +181,18 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
       }
     }
 
+    // 조건 5: 담임 확인 일자가 결석 종료일로부터 5일 이내인지 점검
+    if (em && ed && tm && td) {
+      const endDt = new Date(year, em - 1, ed);
+      const tchDt = new Date(year, tm - 1, td);
+      const diffDays = Math.round((tchDt - endDt) / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 5) {
+        missingFields.push(`담임 확인 일자 (결석종료일로부터 ${diffDays}일 경과, 5일 이내여야 함)`);
+        errors['teacher_confirm_day'] = `담임 확인 일자가 결석 종료일로부터 ${diffDays}일 경과했습니다. 5일 이내여야 합니다!`;
+      }
+    }
+
     if (missingFields.length > 0) {
       setValidationError({
         message: `필수 입력값 누락 또는 날짜 순서 오류로 PDF를 출력할 수 없습니다!`,
@@ -305,7 +317,7 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
               fontWeight: '600'
             }}
           >
-            <Edit3 size={16} /> ✍️ 수기작성 영역 (PDF 출력 시 원본 글자가 들여다보이는 옅은 음영 박스로 표시됩니다)
+            <Edit3 size={16} /> ✍️ 수기작성 영역 (PDF 출력 시 원본 글자 위에 회색 음영 박스가 표시됩니다)
           </div>
         ) : isAbsenceType ? (
           <div style={{ display: 'flex', gap: '20px', padding: '8px 12px', background: '#f8fafc', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>

@@ -75,7 +75,7 @@ class PDFOverlayEngine:
                     rect_shading = fitz.Rect(x - 2, y - 2, x + width + 2, y + font_size + 2)
                     shape = page.new_shape()
                     shape.draw_rect(rect_shading)
-                    shape.finish(fill=(0.80, 0.92, 0.85), fill_opacity=0.30, color=None)
+                    shape.finish(fill=(0.82, 0.82, 0.82), fill_opacity=0.30, color=None)
                     shape.commit(overlay=True)
                     continue
 
