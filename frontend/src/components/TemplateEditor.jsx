@@ -15,7 +15,9 @@ import {
   Info,
   CheckCircle2,
   AlertCircle,
-  Eye
+  Eye,
+  Printer,
+  FileCheck
 } from 'lucide-react';
 
 const PDF_PAGE_WIDTH_PT = 595.28;
@@ -27,8 +29,9 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
   const [selectedFieldIdx, setSelectedFieldIdx] = useState(0);
   const [statusMsg, setStatusMsg] = useState(null);
   const [zoomScale, setZoomScale] = useState(1.0);
-  const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isDraggingBox, setIsDraggingBox] = useState(false);
+  const [isTestPrinting, setIsTestPrinting] = useState(false);
+  const [testPdfUrl, setTestPdfUrl] = useState(null);
 
   const imageRef = useRef(null);
   const canvasContainerRef = useRef(null);
@@ -49,6 +52,7 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
     setFields(t.fields || []);
     setSelectedFieldIdx(0);
     setStatusMsg(null);
+    setTestPdfUrl(null);
   };
 
   const handleFieldChange = (idx, prop, val) => {
@@ -66,6 +70,7 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
       x: 150.0,
       y: 200.0,
       width: 100.0,
+      height: 18.0,
       font_size: 11.0,
       required: true,
       color_tag: 'blue',
@@ -107,7 +112,6 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
   // 캔버스 이미지 위 마우스 클릭 시: 현재 선택된 필드의 좌표를 클릭 위치로 즉시 갱신
   const handleCanvasMouseDown = (e) => {
     if (e.target.closest('.field-overlay-box')) {
-      // 필드 박스 자체를 클릭/드래그한 경우 캔버스 이벤트 방지
       return;
     }
 
@@ -128,7 +132,6 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
   const handleCanvasMouseMove = (e) => {
     if (!dragStartRef.current || selectedFieldIdx === null) return;
 
-    // 드래그하여 너비/높이 지정
     const { x, y } = convertPxToPdfPt(e.clientX, e.clientY);
     const startX = dragStartRef.current.x;
     const startY = dragStartRef.current.y;
@@ -200,6 +203,7 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
     };
   }, [isDraggingBox, fields]);
 
+  // 1. 서버 상 영속 저장
   const handleSave = async () => {
     if (!selectedTemplate) return;
 
@@ -208,22 +212,18 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
       fields: fields
     };
 
-    // 1. 브라우저 localStorage에 즉시 백업 저장 (서버 지연/네트워크 문제 대비)
+    // 로컬스토리지 백업
     try {
       const stored = localStorage.getItem('stamp_templates');
       let tList = stored ? JSON.parse(stored) : (templates || []);
       const idx = tList.findIndex((t) => t.id === payload.id);
-      if (idx >= 0) {
-        tList[idx] = payload;
-      } else {
-        tList.push(payload);
-      }
+      if (idx >= 0) tList[idx] = payload;
+      else tList.push(payload);
       localStorage.setItem('stamp_templates', JSON.stringify(tList));
     } catch (e) {
-      console.warn('LocalStorage save failed:', e);
+      console.warn('LocalStorage backup failed:', e);
     }
 
-    // 2. 서버 API로 영속 저장
     try {
       const res = await fetch(`${apiBase}/api/templates`, {
         method: 'POST',
@@ -231,17 +231,100 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 필드 좌표 매핑 설정이 성공적으로 저장되었습니다!` });
+        setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 설정이 서버에 성공적으로 저장되었습니다! (어느 컴퓨터에서 접속하든 동일하게 적용됩니다)` });
         if (onTemplateUpdated) onTemplateUpdated();
       } else {
         const data = await res.json().catch(() => ({}));
-        const errDetail = typeof data.detail === 'string' ? data.detail : '서버 저장 상태 오류';
-        setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 설정이 브라우저 로컬에 저장되었습니다. (${errDetail})` });
-        if (onTemplateUpdated) onTemplateUpdated();
+        const errDetail = typeof data.detail === 'string' ? data.detail : '서버 상태 코드: ' + res.status;
+        setStatusMsg({ type: 'error', text: `서버 저장 실패: ${errDetail}` });
       }
     } catch (err) {
-      setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 설정이 로컬 스토리지에 안전하게 저장되었습니다.` });
-      if (onTemplateUpdated) onTemplateUpdated();
+      setStatusMsg({ type: 'error', text: `서버 통신 오류: ${err.message}` });
+    }
+  };
+
+  // 2. 🖨️ 시험 페이지 출력 (현재 캔버스에 배치된 실시간 좌표로 테스트 인쇄)
+  const handleTestPrint = async () => {
+    if (!selectedTemplate) return;
+
+    setIsTestPrinting(true);
+    setStatusMsg(null);
+
+    // 각 필드별 맞춤형 시험 예시 데이터 자동 생성
+    const isOverseas = selectedTemplate.id.includes('overseas');
+    const isDomestic = selectedTemplate.id.includes('domestic');
+    const isAbsence = selectedTemplate.id.includes('absence');
+
+    const sampleData = {};
+    fields.forEach((f) => {
+      if (f.id === 'grade') sampleData[f.id] = '2';
+      else if (f.id === 'class_num') sampleData[f.id] = '3';
+      else if (f.id === 'student_num') sampleData[f.id] = '14';
+      else if (f.id === 'student_name') sampleData[f.id] = '홍길동';
+      else if (f.id === 'address') sampleData[f.id] = '서울특별시 구로구 구로동 123';
+      else if (f.id === 'phone') sampleData[f.id] = '010-1234-5678';
+      else if (f.id === 'start_month') sampleData[f.id] = '5';
+      else if (f.id === 'start_day') sampleData[f.id] = '1';
+      else if (f.id === 'end_month') sampleData[f.id] = '5';
+      else if (f.id === 'end_day') sampleData[f.id] = '4';
+      else if (f.id === 'days_count') sampleData[f.id] = '2';
+      else if (f.id === 'location') sampleData[f.id] = isOverseas ? '일본 오사카 및 교토 일대' : '제주특별자치도 일대';
+      else if (f.id === 'study_plan') {
+        sampleData[f.id] = '1. 주요 문화유적 및 자연생태 탐방\n2. 현지 체험 활동 및 일지 작성\n3. 견학 보고서 정리';
+      } else if (f.id === 'submit_month') sampleData[f.id] = '4';
+      else if (f.id === 'submit_day') sampleData[f.id] = '25';
+      else if (f.id === 'student_name_sign' || f.id === 'sign_name') sampleData[f.id] = '홍길동';
+      else if (f.id === 'parent_name_sign') sampleData[f.id] = '홍판서';
+      else if (f.id === 'absence_type') sampleData[f.id] = '질병';
+      else if (f.id === 'reason_detail') sampleData[f.id] = '독감 및 고열로 인한 병원 치료';
+      else if (f.id === 'proof_1') sampleData[f.id] = 'O';
+      else if (f.id === 'proof_4_etc') sampleData[f.id] = '진단서 첨부';
+      else if (f.id === 'privacy_agree' || f.id === 'sensitive_agree') sampleData[f.id] = 'V';
+      else if (f.id === 'teacher_opinion_reason') sampleData[f.id] = '유선 전화로 학부모 확인 완료';
+      else if (f.id === 'teacher_proof_check') sampleData[f.id] = '처방전 확인 완료';
+      else if (f.id === 'teacher_confirm_month') sampleData[f.id] = '9';
+      else if (f.id === 'teacher_confirm_day') sampleData[f.id] = '5';
+      else if (f.id === 'teacher_name') sampleData[f.id] = '김담임';
+      else if (!f.handwriting_shading) {
+        sampleData[f.id] = f.placeholder || f.label;
+      }
+    });
+
+    const payload = {
+      template: {
+        ...selectedTemplate,
+        fields: fields
+      },
+      sample_data: sampleData
+    };
+
+    try {
+      const res = await fetch(`${apiBase}/api/test-print-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `시험 인쇄 서버 오류 (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const pdfUrl = window.URL.createObjectURL(blob);
+      setTestPdfUrl(pdfUrl);
+
+      // 새 창에서 즉시 미리보기 열기
+      window.open(pdfUrl, '_blank');
+
+      setStatusMsg({
+        type: 'success',
+        text: `🖨️ '${selectedTemplate.name}' 시험 페이지 PDF가 새 탭에 열렸습니다! 글자 위치가 알맞은지 확인해 보세요.`
+      });
+    } catch (err) {
+      setStatusMsg({ type: 'error', text: `시험 페이지 출력 오류: ${err.message}` });
+    } finally {
+      setIsTestPrinting(false);
     }
   };
 
@@ -252,7 +335,7 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
 
   return (
     <div className="visual-field-mapper">
-      {/* 1. 상단 섹션 타이틀 및 안내 */}
+      {/* 1. 상단 섹션 타이틀 및 툴바 */}
       <div className="section-header" style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
@@ -265,12 +348,24 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ background: '#f8fafc', color: '#0f172a', border: '1.5px solid #cbd5e1' }}
+              onClick={handleTestPrint}
+              disabled={isTestPrinting}
+            >
+              <Printer size={16} style={{ color: '#2563eb' }} />
+              {isTestPrinting ? '시험 PDF 생성 중...' : '🖨️ 시험 페이지 출력'}
+            </button>
+
             <button type="button" className="btn btn-secondary" onClick={handleAddField}>
               <Plus size={16} /> 필드 추가
             </button>
+
             <button type="button" className="btn btn-primary" onClick={handleSave}>
-              <Save size={16} /> 매핑 설정 저장
+              <Save size={16} /> 매핑 설정 서버 저장
             </button>
           </div>
         </div>
@@ -280,11 +375,12 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
       {statusMsg && (
         <div
           style={{
-            padding: '12px 18px',
+            padding: '14px 18px',
             borderRadius: '10px',
             marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
             gap: '10px',
             fontWeight: '700',
             fontSize: '0.9rem',
@@ -293,8 +389,29 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
             color: statusMsg.type === 'success' ? '#047857' : '#b91c1c'
           }}
         >
-          {statusMsg.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span>{statusMsg.text}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {statusMsg.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+            <span>{statusMsg.text}</span>
+          </div>
+
+          {testPdfUrl && (
+            <a
+              href={testPdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                fontSize: '0.84rem',
+                color: '#047857',
+                textDecoration: 'underline',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <Eye size={15} /> 시험 PDF 다시 열기
+            </a>
+          )}
         </div>
       )}
 
@@ -380,12 +497,15 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
               marginBottom: '12px',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'space-between',
               gap: '6px'
             }}>
-              <MousePointer size={15} style={{ color: '#2563eb', flexShrink: 0 }} />
-              <span>
-                우측에서 수정할 항목을 선택한 뒤, <strong>서식 이미지의 원하는 빈칸을 마우스로 클릭하거나 드래그</strong>하세요.
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <MousePointer size={15} style={{ color: '#2563eb', flexShrink: 0 }} />
+                <span>
+                  서식 빈칸을 <strong>클릭하거나 드래그</strong>하여 위치를 맞춘 뒤, 상단의 <strong>[🖨️ 시험 페이지 출력]</strong>으로 바로 확인하세요.
+                </span>
+              </div>
             </div>
 
             {/* 캔버스 뷰포트 컨테이너 */}
@@ -435,14 +555,13 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
                 {/* 2. 필드 오버레이 박스 렌더링 */}
                 {fields.map((f, idx) => {
                   const isSelected = selectedFieldIdx === idx;
-                  const isBlue = f.color_tag === 'blue' || f.required;
                   const isGreen = f.color_tag === 'green' || f.handwriting_shading;
                   const isYellow = f.color_tag === 'yellow';
 
                   const boxLeft = f.x * zoomScale;
                   const boxTop = f.y * zoomScale;
                   const boxWidth = Math.max(16, (f.width || 50) * zoomScale);
-                  const boxHeight = Math.max(14, (f.height || (f.font_size || 12) + 4) * zoomScale);
+                  const boxHeight = Math.max(14, (f.height || (f.font_size || 11) + 6) * zoomScale);
 
                   let bgHex = 'rgba(59, 130, 246, 0.25)';
                   let borderHex = '#2563eb';
@@ -560,7 +679,7 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
                   </div>
                 </div>
 
-                {/* 좌표 (X, Y, Width, Font Size) */}
+                {/* 좌표 (X, Y, Width, Height) */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '12px', background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div className="form-group">
                     <label className="form-label" style={{ fontSize: '0.78rem', color: '#2563eb' }}>X 좌표 (pt)</label>

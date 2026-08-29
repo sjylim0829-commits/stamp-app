@@ -177,3 +177,34 @@ def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):
     except Exception as e:
         tb_str = traceback.format_exc()
         raise HTTPException(status_code=500, detail={"message": f"PDF 렌더링 중 오류 발생: {str(e)}", "traceback": tb_str})
+
+class TestPrintRequest(BaseModel):
+    template: Dict[str, Any]
+    sample_data: Optional[Dict[str, Any]] = None
+
+@app.post("/api/test-print-pdf")
+def test_print_pdf(request: TestPrintRequest):
+    template = request.template
+    if not template:
+        raise HTTPException(status_code=400, detail="템플릿 정보가 필요합니다.")
+
+    pdf_filename = template.get("pdf_filename", "2026_absence_report_base.pdf")
+    try:
+        pdf_path = find_pdf_file(pdf_filename)
+    except FileNotFoundError as fnf_err:
+        raise HTTPException(status_code=404, detail=str(fnf_err))
+
+    sample_data = request.sample_data or {}
+
+    try:
+        output_pdf_bytes = pdf_engine.generate_filled_pdf(pdf_path, template, sample_data)
+        return Response(
+            content=output_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=Test_Print_{template.get('id', 'custom')}.pdf"
+            }
+        )
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        raise HTTPException(status_code=500, detail={"message": f"시험 페이지 출력 중 오류: {str(e)}", "traceback": tb_str})
