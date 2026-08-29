@@ -28,3 +28,5 @@ test_filled_output.pdf
 Thumbs.db
 .vscode/
 .idea/
+*INSTRUCTION*.md
+

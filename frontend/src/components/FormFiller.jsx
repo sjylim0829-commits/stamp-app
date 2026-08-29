@@ -28,44 +28,91 @@ const HOLIDAYS_2026 = new Set([
   '2026-12-25',
 ]);
 
-function calculateBusinessDays(startM, startD, endM, endD, year = 2026) {
-  if (!startM || !startD || !endM || !endD) return '';
+function calculateBusinessDays(startM, startD, endM, endD, year = 2026, schoolHolidays = []) {
+  if (!startM || !startD || !endM || !endD) {
+    return { countStr: '', excludedList: [] };
+  }
   const sm = parseInt(startM, 10);
   const sd = parseInt(startD, 10);
   const em = parseInt(endM, 10);
   const ed = parseInt(endD, 10);
 
-  if (isNaN(sm) || isNaN(sd) || isNaN(em) || isNaN(ed)) return '';
+  if (isNaN(sm) || isNaN(sd) || isNaN(em) || isNaN(ed)) {
+    return { countStr: '', excludedList: [] };
+  }
 
   const startDate = new Date(year, sm - 1, sd);
   const endDate = new Date(year, em - 1, ed);
 
-  if (startDate > endDate) return '';
+  if (startDate > endDate) {
+    return { countStr: '', excludedList: [] };
+  }
+
+  // 학교 휴업일 맵 구성
+  const schoolHolidayMap = new Map();
+  if (Array.isArray(schoolHolidays)) {
+    schoolHolidays.forEach((h) => {
+      if (h && h.date) {
+        schoolHolidayMap.set(h.date, { name: h.name || '학교 휴업일', type: h.type || '휴업일' });
+      }
+    });
+  }
 
   let count = 0;
+  const excludedList = [];
   let cur = new Date(startDate);
 
   while (cur <= endDate) {
     const dayOfWeek = cur.getDay();
     const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+    const displayDate = `${cur.getMonth() + 1}/${cur.getDate()}`;
 
-    if (dayOfWeek !== 0 && dayOfWeek !== 6 && !HOLIDAYS_2026.has(dateStr)) {
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      // 주말(토/일)은 결석일수에서 제외
+    } else if (HOLIDAYS_2026.has(dateStr)) {
+      // 대한민국 법정공휴일 제외
+      excludedList.push({
+        date: dateStr,
+        displayDate,
+        name: '법정공휴일',
+        type: '법정공휴일'
+      });
+    } else if (schoolHolidayMap.has(dateStr)) {
+      // 관리자 등록 학교 휴업일(개교기념일, 재량휴업일 등) 제외
+      const info = schoolHolidayMap.get(dateStr);
+      excludedList.push({
+        date: dateStr,
+        displayDate,
+        name: info.name,
+        type: info.type
+      });
+    } else {
       count++;
     }
 
     cur.setDate(cur.getDate() + 1);
   }
 
-  return count > 0 ? String(count) : '0';
+  return {
+    countStr: count > 0 ? String(count) : '0',
+    excludedList
+  };
 }
 
-export default function FormFiller({ templates, selectedTemplateId, onSelectTemplate, apiBase = '' }) {
+export default function FormFiller({
+  templates,
+  selectedTemplateId,
+  onSelectTemplate,
+  schoolHolidays = [],
+  apiBase = ''
+}) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [formData, setFormData] = useState({});
   const [validationError, setValidationError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [holidayDeductions, setHolidayDeductions] = useState([]);
 
   useEffect(() => {
     if (selectedTemplateId && templates.length > 0) {
@@ -79,6 +126,24 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
     }
   }, [selectedTemplateId, templates]);
 
+  // schoolHolidays 변경 시 현재 입력된 날짜 기반으로 일수 재계산
+  useEffect(() => {
+    if (formData.start_month && formData.start_day && formData.end_month && formData.end_day) {
+      const { countStr, excludedList } = calculateBusinessDays(
+        formData.start_month,
+        formData.start_day,
+        formData.end_month,
+        formData.end_day,
+        2026,
+        schoolHolidays
+      );
+      if (countStr !== '') {
+        setFormData((prev) => ({ ...prev, days_count: countStr }));
+        setHolidayDeductions(excludedList);
+      }
+    }
+  }, [schoolHolidays]);
+
   const initFormState = (template) => {
     const initial = {};
     if (template && template.fields) {
@@ -90,6 +155,7 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
     setValidationError(null);
     setFieldErrors({});
     setPdfPreviewUrl(null);
+    setHolidayDeductions([]);
   };
 
   const handleTemplateChange = (t) => {
@@ -112,9 +178,12 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
         const em = updated.end_month;
         const ed = updated.end_day;
 
-        const autoDays = calculateBusinessDays(sm, sd, em, ed, 2026);
-        if (autoDays !== '') {
-          updated.days_count = autoDays;
+        const { countStr, excludedList } = calculateBusinessDays(sm, sd, em, ed, 2026, schoolHolidays);
+        if (countStr !== '') {
+          updated.days_count = countStr;
+          setHolidayDeductions(excludedList);
+        } else {
+          setHolidayDeductions([]);
         }
       }
 
@@ -519,6 +588,44 @@ export default function FormFiller({ templates, selectedTemplateId, onSelectTemp
                     </span>
                   </div>
                 </div>
+
+                {/* 결석 기간 중 학교 휴업일 / 공휴일 차감 내역 안내 */}
+                {holidayDeductions && holidayDeductions.length > 0 && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '10px 14px',
+                    background: '#f0fdfa',
+                    border: '1px solid #99f6e4',
+                    borderRadius: '8px',
+                    fontSize: '0.84rem',
+                    color: '#0f766e',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      💡 결석 기간 중 휴업일·공휴일 ({holidayDeductions.length}일)이 제외되었습니다:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                      {holidayDeductions.map((d, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            padding: '2px 8px',
+                            background: d.type === '개교기념일' ? '#f5f3ff' : d.type === '재량휴업일' ? '#f0f9ff' : '#ecfdf5',
+                            color: d.type === '개교기념일' ? '#6d28d9' : d.type === '재량휴업일' ? '#0369a1' : '#047857',
+                            border: `1px solid ${d.type === '개교기념일' ? '#ddd6fe' : d.type === '재량휴업일' ? '#bae6fd' : '#a7f3d0'}`,
+                            borderRadius: '6px',
+                            fontWeight: '600',
+                            fontSize: '0.78rem'
+                          }}
+                        >
+                          📅 {d.displayDate} ({d.name})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {renderSingleField('reason_detail')}

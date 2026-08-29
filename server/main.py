@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, List
 from templates_manager import TemplateManager
 from pdf_engine import PDFOverlayEngine
 from validator import FormValidator
+from holidays_manager import HolidaysManager
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 
 template_manager = TemplateManager()
+holidays_manager = HolidaysManager()
 pdf_engine = PDFOverlayEngine()
 validator = FormValidator()
 
@@ -89,6 +91,32 @@ def get_template(template_id: str):
 def create_or_update_template(template_data: Dict[str, Any]):
     saved = template_manager.save_template(template_data)
     return {"status": "success", "template": saved}
+
+@app.get("/api/school-holidays")
+def list_school_holidays():
+    return holidays_manager.get_all_holidays()
+
+@app.post("/api/school-holidays")
+def save_school_holiday(holiday_data: Dict[str, Any]):
+    try:
+        saved = holidays_manager.save_holiday(holiday_data)
+        return {"status": "success", "holiday": saved, "holidays": holidays_manager.get_all_holidays()}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"휴업일 저장 실패: {str(e)}")
+
+@app.delete("/api/school-holidays/{holiday_id}")
+def delete_school_holiday(holiday_id: str):
+    deleted = holidays_manager.delete_holiday(holiday_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="삭제할 휴업일을 찾을 수 없습니다.")
+    return {"status": "success", "message": "휴업일이 삭제되었습니다.", "holidays": holidays_manager.get_all_holidays()}
+
+@app.post("/api/school-holidays/reset")
+def reset_school_holidays():
+    defaults = holidays_manager.reset_to_defaults()
+    return {"status": "success", "message": "기본 추천 휴업일로 초기화되었습니다.", "holidays": defaults}
 
 @app.post("/api/fill-pdf/{template_id}")
 def fill_pdf_template(template_id: str, request: PDFSubmissionRequest):

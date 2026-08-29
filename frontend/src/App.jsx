@@ -1,15 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import FormFiller from './components/FormFiller';
 import TemplateEditor from './components/TemplateEditor';
-import { Stamp, Edit3, Layers, FileCheck, Lock, Unlock, ShieldCheck } from 'lucide-react';
+import SchoolHolidayManager from './components/SchoolHolidayManager';
+import {
+  Stamp,
+  FileCheck,
+  Lock,
+  Unlock,
+  ShieldCheck,
+  Calendar,
+  Layers,
+  Sparkles
+} from 'lucide-react';
 
 const ADMIN_PASSWORD = '661227';
-
 const API_BASE = import.meta.env.PROD ? '' : 'http://localhost:8000';
 
+const FALLBACK_DEFAULT_HOLIDAYS = [
+  { id: 'sh_20260501', date: '2026-05-01', name: '근로자의 날 / 개교기념일', type: '개교기념일', memo: '학교 지정 휴업일' },
+  { id: 'sh_20260504', date: '2026-05-04', name: '어린이날 징검다리 재량휴업일', type: '재량휴업일', memo: '5/5 어린이날 연계 휴업' },
+  { id: 'sh_20260605', date: '2026-06-05', name: '현충일 징검다리 재량휴업일', type: '재량휴업일', memo: '6/6 현충일 연계 휴업' },
+  { id: 'sh_20261002', date: '2026-10-02', name: '개천절 징검다리 재량휴업일', type: '재량휴업일', memo: '10/3 개천절 연계 휴업' },
+  { id: 'sh_20261119', date: '2026-11-19', name: '대학수학능력시험일', type: '수능일', memo: '수능 시험장 운영' }
+];
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('fill'); // 'fill' | 'manage'
+  const [activeTab, setActiveTab] = useState('fill'); // 'fill' | 'holidays' | 'templates'
   const [templates, setTemplates] = useState([]);
+  const [schoolHolidays, setSchoolHolidays] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [loading, setLoading] = useState(true);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
@@ -29,7 +47,6 @@ export default function App() {
 
   const fetchTemplates = async () => {
     try {
-      setLoading(true);
       const res = await fetch(`${API_BASE}/api/templates`);
       if (res.ok) {
         const data = await res.json();
@@ -40,14 +57,50 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to fetch templates:', err);
-    } finally {
-      setLoading(false);
     }
   };
 
+  const fetchSchoolHolidays = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/school-holidays`);
+      if (res.ok) {
+        const data = await res.json();
+        setSchoolHolidays(data);
+        localStorage.setItem('stamp_school_holidays', JSON.stringify(data));
+      } else {
+        const local = localStorage.getItem('stamp_school_holidays');
+        if (local) {
+          setSchoolHolidays(JSON.parse(local));
+        } else {
+          setSchoolHolidays(FALLBACK_DEFAULT_HOLIDAYS);
+        }
+      }
+    } catch (err) {
+      console.warn('Backend API connection failed, using local/fallback holidays:', err);
+      const local = localStorage.getItem('stamp_school_holidays');
+      if (local) {
+        setSchoolHolidays(JSON.parse(local));
+      } else {
+        setSchoolHolidays(FALLBACK_DEFAULT_HOLIDAYS);
+      }
+    }
+  };
+
+  const initData = async () => {
+    setLoading(true);
+    await Promise.all([fetchTemplates(), fetchSchoolHolidays()]);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    fetchTemplates();
+    initData();
   }, []);
+
+  const handleTabClick = (tabKey) => {
+    setActiveTab(tabKey);
+  };
+
+  const isManagementTab = activeTab === 'holidays' || activeTab === 'templates';
 
   return (
     <div className="app-container">
@@ -66,15 +119,25 @@ export default function App() {
         <nav className="nav-tabs">
           <button
             className={`nav-tab ${activeTab === 'fill' ? 'active' : ''}`}
-            onClick={() => setActiveTab('fill')}
+            onClick={() => handleTabClick('fill')}
           >
             <FileCheck size={18} /> 양식 작성 및 출력
           </button>
+          
           <button
-            className={`nav-tab ${activeTab === 'manage' ? 'active' : ''}`}
-            onClick={() => setActiveTab('manage')}
+            className={`nav-tab ${activeTab === 'holidays' ? 'active' : ''}`}
+            onClick={() => handleTabClick('holidays')}
           >
-            {isAdminUnlocked ? <Unlock size={18} /> : <Lock size={18} />} 템플릿 관리
+            <Calendar size={18} /> 학교 휴업일 관리
+            {!isAdminUnlocked && <Lock size={14} style={{ opacity: 0.6 }} />}
+          </button>
+
+          <button
+            className={`nav-tab ${activeTab === 'templates' ? 'active' : ''}`}
+            onClick={() => handleTabClick('templates')}
+          >
+            <Layers size={18} /> 템플릿 관리
+            {!isAdminUnlocked && <Lock size={14} style={{ opacity: 0.6 }} />}
           </button>
         </nav>
       </header>
@@ -83,30 +146,34 @@ export default function App() {
       <main className="main-card">
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#64748b' }}>
-            <p style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>양식 템플릿 정보를 불러오는 중입니다...</p>
+            <p style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>양식 및 학교 학사 정보를 불러오는 중입니다...</p>
           </div>
         ) : activeTab === 'fill' ? (
           <FormFiller
             templates={templates}
             selectedTemplateId={selectedTemplateId}
             onSelectTemplate={setSelectedTemplateId}
+            schoolHolidays={schoolHolidays}
             apiBase={API_BASE}
           />
         ) : !isAdminUnlocked ? (
-          <div style={{ maxWidth: '420px', margin: '40px auto', textAlign: 'center' }}>
+          /* 관리자 비밀번호 잠금 화면 */
+          <div style={{ maxWidth: '440px', margin: '40px auto', textAlign: 'center' }}>
             <div style={{
-              width: '72px', height: '72px', margin: '0 auto 20px',
-              background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+              width: '76px', height: '76px', margin: '0 auto 20px',
+              background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
               borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.06)'
+              boxShadow: '0 6px 16px rgba(59, 130, 246, 0.15)',
+              color: '#2563eb'
             }}>
-              <ShieldCheck size={32} style={{ color: '#64748b' }} />
+              <ShieldCheck size={36} />
             </div>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
               🔒 관리자 전용 영역
             </h2>
             <p style={{ color: '#64748b', fontSize: '0.92rem', marginBottom: '28px', lineHeight: '1.6' }}>
-              템플릿 필드 매핑 설정은 관리자만 수정할 수 있습니다.<br/>관리자 비밀번호를 입력해 주세요.
+              학교 휴업일 및 템플릿 필드 매핑 설정은 관리자만 수정할 수 있습니다.<br/>
+              관리자 비밀번호를 입력해 주세요.
             </p>
             <form onSubmit={handleAdminUnlock} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <input
@@ -115,7 +182,7 @@ export default function App() {
                 placeholder="관리자 비밀번호 입력"
                 value={adminPassword}
                 onChange={(e) => { setAdminPassword(e.target.value); setPasswordError(''); }}
-                style={{ textAlign: 'center', fontSize: '1.05rem', letterSpacing: '4px', padding: '14px 16px' }}
+                style={{ textAlign: 'center', fontSize: '1.1rem', letterSpacing: '4px', padding: '14px 16px' }}
                 autoFocus
               />
               {passwordError && (
@@ -127,16 +194,63 @@ export default function App() {
                 </div>
               )}
               <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                <Lock size={18} /> 잠금 해제
+                <Unlock size={18} /> 관리자 잠금 해제
               </button>
             </form>
           </div>
         ) : (
-          <TemplateEditor
-            templates={templates}
-            onTemplateUpdated={fetchTemplates}
-            apiBase={API_BASE}
-          />
+          /* 관리자 잠금 해제 후 관리 영역 */
+          <div>
+            {/* 관리자 서브 탭 네비게이션 */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc',
+              padding: '6px 8px',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              marginBottom: '28px'
+            }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('holidays')}
+                  className={`btn ${activeTab === 'holidays' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '8px 18px', fontSize: '0.9rem' }}
+                >
+                  <Calendar size={16} /> 📅 학교 휴업일 등록·관리
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('templates')}
+                  className={`btn ${activeTab === 'templates' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '8px 18px', fontSize: '0.9rem' }}
+                >
+                  <Layers size={16} /> 📋 서식 템플릿 필드 매핑
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontSize: '0.84rem', fontWeight: '700', paddingRight: '12px' }}>
+                <Unlock size={14} /> 관리자 인증 완료
+              </div>
+            </div>
+
+            {/* 활성 관리자 서브탭 컴포넌트 렌더링 */}
+            {activeTab === 'holidays' ? (
+              <SchoolHolidayManager
+                schoolHolidays={schoolHolidays}
+                onHolidaysUpdated={fetchSchoolHolidays}
+                apiBase={API_BASE}
+              />
+            ) : (
+              <TemplateEditor
+                templates={templates}
+                onTemplateUpdated={fetchTemplates}
+                apiBase={API_BASE}
+              />
+            )}
+          </div>
         )}
       </main>
     </div>
