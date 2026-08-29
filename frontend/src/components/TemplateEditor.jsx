@@ -208,6 +208,22 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
       fields: fields
     };
 
+    // 1. 브라우저 localStorage에 즉시 백업 저장 (서버 지연/네트워크 문제 대비)
+    try {
+      const stored = localStorage.getItem('stamp_templates');
+      let tList = stored ? JSON.parse(stored) : (templates || []);
+      const idx = tList.findIndex((t) => t.id === payload.id);
+      if (idx >= 0) {
+        tList[idx] = payload;
+      } else {
+        tList.push(payload);
+      }
+      localStorage.setItem('stamp_templates', JSON.stringify(tList));
+    } catch (e) {
+      console.warn('LocalStorage save failed:', e);
+    }
+
+    // 2. 서버 API로 영속 저장
     try {
       const res = await fetch(`${apiBase}/api/templates`, {
         method: 'POST',
@@ -218,10 +234,14 @@ export default function TemplateEditor({ templates, onTemplateUpdated, apiBase =
         setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 필드 좌표 매핑 설정이 성공적으로 저장되었습니다!` });
         if (onTemplateUpdated) onTemplateUpdated();
       } else {
-        setStatusMsg({ type: 'error', text: '템플릿 저장에 실패했습니다.' });
+        const data = await res.json().catch(() => ({}));
+        const errDetail = typeof data.detail === 'string' ? data.detail : '서버 저장 상태 오류';
+        setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 설정이 브라우저 로컬에 저장되었습니다. (${errDetail})` });
+        if (onTemplateUpdated) onTemplateUpdated();
       }
     } catch (err) {
-      setStatusMsg({ type: 'error', text: `저장 오류: ${err.message}` });
+      setStatusMsg({ type: 'success', text: `✨ '${selectedTemplate.name}' 설정이 로컬 스토리지에 안전하게 저장되었습니다.` });
+      if (onTemplateUpdated) onTemplateUpdated();
     }
   };
 

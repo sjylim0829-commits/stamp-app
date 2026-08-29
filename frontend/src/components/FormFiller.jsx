@@ -190,7 +190,11 @@ export default function FormFiller({
     const initial = {};
     if (template && template.fields) {
       template.fields.forEach((f) => {
-        initial[f.id] = '';
+        if (f.id === 'privacy_agree' || f.id === 'sensitive_agree') {
+          initial[f.id] = 'V';
+        } else {
+          initial[f.id] = '';
+        }
       });
     }
     setFormData(initial);
@@ -465,6 +469,53 @@ export default function FormFiller({
           >
             <Edit3 size={15} /> ✍️ 수기작성 서명란 (출력 시 연한 반투명 음영 박스 적용)
           </div>
+        ) : (field.id === 'privacy_agree' || field.id === 'sensitive_agree') ? (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '12px 16px',
+              background: (formData[field.id] === 'V' || formData[field.id] === true) ? '#eff6ff' : '#f8fafc',
+              border: (formData[field.id] === 'V' || formData[field.id] === true) ? '1.5px solid #3b82f6' : '1px solid #cbd5e1',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              fontWeight: '700',
+              color: (formData[field.id] === 'V' || formData[field.id] === true) ? '#1d4ed8' : '#64748b'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={formData[field.id] === 'V' || formData[field.id] === true}
+              onChange={(e) => handleInputChange(field.id, e.target.checked ? 'V' : '')}
+              style={{ width: '18px', height: '18px', accentColor: '#2563eb' }}
+            />
+            <span>
+              [동의: ✔] {field.id === 'privacy_agree' ? '개인정보' : '민감정보'} 수집·이용 사항에 동의합니다 (체크 시 PDF [동의: □]에 체크 표시)
+            </span>
+          </label>
+        ) : (field.id.startsWith('proof_') && !field.id.includes('etc')) ? (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 14px',
+              background: (formData[field.id] === 'O' || formData[field.id] === 'V' || formData[field.id] === true) ? '#f0fdf4' : '#f8fafc',
+              border: (formData[field.id] === 'O' || formData[field.id] === 'V' || formData[field.id] === true) ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={formData[field.id] === 'O' || formData[field.id] === 'V' || formData[field.id] === true}
+              onChange={(e) => handleInputChange(field.id, e.target.checked ? 'O' : '')}
+              style={{ width: '18px', height: '18px', accentColor: '#10b981' }}
+            />
+            <span>{field.label} 첨부함 (O표 체크)</span>
+          </label>
         ) : field.multiline ? (
           <textarea
             rows={5}

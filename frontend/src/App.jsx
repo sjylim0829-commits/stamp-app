@@ -51,12 +51,26 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setTemplates(data);
+        localStorage.setItem('stamp_templates', JSON.stringify(data));
         if (data.length > 0 && !selectedTemplateId) {
           setSelectedTemplateId(data[0].id);
         }
+      } else {
+        const local = localStorage.getItem('stamp_templates');
+        if (local) {
+          const parsed = JSON.parse(local);
+          setTemplates(parsed);
+          if (parsed.length > 0 && !selectedTemplateId) setSelectedTemplateId(parsed[0].id);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch templates:', err);
+      console.warn('Failed to fetch templates from backend, trying localStorage:', err);
+      const local = localStorage.getItem('stamp_templates');
+      if (local) {
+        const parsed = JSON.parse(local);
+        setTemplates(parsed);
+        if (parsed.length > 0 && !selectedTemplateId) setSelectedTemplateId(parsed[0].id);
+      }
     }
   };
 

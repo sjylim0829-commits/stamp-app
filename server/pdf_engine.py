@@ -66,13 +66,13 @@ class PDFOverlayEngine:
 
                 x = float(field.get("x", 100))
                 y = float(field.get("y", 100))
-                font_size = float(field.get("font_size", 12.0))
+                font_size = float(field.get("font_size", 11.0))
                 width = float(field.get("width", 50))
-                height = float(field.get("height", 14))
+                height = float(field.get("height", font_size + 6))
 
                 # 초록색 수기작성 반투명 음영 오버레이
                 if is_green:
-                    rect_shading = fitz.Rect(x - 2, y - 2, x + width + 2, y + font_size + 2)
+                    rect_shading = fitz.Rect(x, y, x + width, y + height)
                     shape = page.new_shape()
                     shape.draw_rect(rect_shading)
                     shape.finish(fill=(0.82, 0.82, 0.82), fill_opacity=0.30, color=None)
@@ -88,14 +88,27 @@ class PDFOverlayEngine:
                 # 결석구분 (질병 / 인정) 동그라미(○) 글자 위 덧씌우기
                 if field_id == "absence_type":
                     if "질병" in text_val:
-                        point_circle = fitz.Point(177, 214)
-                        page.insert_text(point_circle, "○", fontsize=18, fontname=font_name, color=(0, 0, 0))
+                        point_circle = fitz.Point(176.5, 214.0)
+                        page.insert_text(point_circle, "○", fontsize=17, fontname=font_name, color=(0, 0, 0))
                     elif "인정" in text_val:
-                        point_circle = fitz.Point(203, 214)
-                        page.insert_text(point_circle, "○", fontsize=18, fontname=font_name, color=(0, 0, 0))
+                        point_circle = fitz.Point(202.5, 214.0)
+                        page.insert_text(point_circle, "○", fontsize=17, fontname=font_name, color=(0, 0, 0))
                     else:
-                        point = fitz.Point(x, y + font_size)
-                        page.insert_text(point, text_val, fontsize=font_size, fontname=font_name, color=(0, 0, 0))
+                        rect = fitz.Rect(x, y, x + width, y + height)
+                        page.insert_textbox(rect, text_val, fontsize=font_size, fontname=font_name, color=(0, 0, 0))
+                    continue
+
+                # 3. 개인정보 및 민감정보 동의 체크박스 (체크 시 [동의: □] 네모 안에 'V' 체크 표시)
+                if field_id == "privacy_agree":
+                    if text_val in ("V", "v", "true", "True", "Y", "y", "1", "on"):
+                        point_v = fitz.Point(270.0, 517.5)
+                        page.insert_text(point_v, "V", fontsize=11, fontname="helv", color=(0, 0, 0))
+                    continue
+
+                if field_id == "sensitive_agree":
+                    if text_val in ("V", "v", "true", "True", "Y", "y", "1", "on"):
+                        point_v = fitz.Point(270.0, 590.0)
+                        page.insert_text(point_v, "V", fontsize=11, fontname="helv", color=(0, 0, 0))
                     continue
 
                 color_hex = field.get("color", "#000000")
@@ -106,8 +119,10 @@ class PDFOverlayEngine:
 
                 is_multiline = field.get("multiline", False) or ("\n" in text_val)
 
+                # 사각형 Bounding Box 기반 정밀 렌더링 (캔버스 박스와 100% 일치)
+                rect = fitz.Rect(x, y, x + width, y + height)
+
                 if is_multiline:
-                    rect = fitz.Rect(x, y, x + width, y + height)
                     page.insert_textbox(
                         rect,
                         text_val,
@@ -117,13 +132,14 @@ class PDFOverlayEngine:
                         align=fitz.TEXT_ALIGN_LEFT
                     )
                 else:
-                    point = fitz.Point(x, y + font_size)
-                    page.insert_text(
-                        point,
+                    # 단일 행: 박스 내부 렌더링
+                    page.insert_textbox(
+                        rect,
                         text_val,
                         fontsize=font_size,
                         fontname=font_name,
-                        color=color_tuple
+                        color=color_tuple,
+                        align=fitz.TEXT_ALIGN_LEFT
                     )
 
         # 템플릿에 지정된 단일 페이지만 추출 (예: 국내 신청서 1페이지, 해외 신청서 1페이지)
