@@ -87,6 +87,26 @@ def get_template(template_id: str):
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다.")
     return template
 
+@app.get("/api/templates/{template_id}/preview-image")
+def get_template_preview_image(template_id: str):
+    template = template_manager.get_template_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="지정된 템플릿을 찾을 수 없습니다.")
+
+    pdf_filename = template.get("pdf_filename", "2026_absence_report_base.pdf")
+    page_num = int(template.get("page_index", 0))
+
+    try:
+        pdf_path = find_pdf_file(pdf_filename)
+    except FileNotFoundError as fnf_err:
+        raise HTTPException(status_code=404, detail=str(fnf_err))
+
+    try:
+        png_bytes = pdf_engine.render_pdf_page_as_png(pdf_path, page_num=page_num)
+        return Response(content=png_bytes, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"미리보기 이미지 생성 실패: {str(e)}")
+
 @app.post("/api/templates")
 def create_or_update_template(template_data: Dict[str, Any]):
     saved = template_manager.save_template(template_data)
