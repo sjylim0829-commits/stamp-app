@@ -126,6 +126,13 @@ class PDFOverlayEngine:
                         color=color_tuple
                     )
 
+        # 템플릿에 지정된 단일 페이지만 추출 (예: 국내 신청서 1페이지, 해외 신청서 1페이지)
+        target_page = template.get("page_index")
+        if target_page is not None and 0 <= int(target_page) < len(doc):
+            doc.select([int(target_page)])
+        elif "selected_pages" in template and isinstance(template["selected_pages"], list):
+            doc.select(template["selected_pages"])
+
         output_bytes = doc.tobytes()
         doc.close()
         return output_bytes

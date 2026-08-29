@@ -1,5 +1,57 @@
 from typing import Dict, Any, List, Tuple
-from datetime import date
+from datetime import date, timedelta
+import os
+import sys
+
+# HolidaysManager 가져오기
+try:
+    from holidays_manager import HolidaysManager
+    holidays_manager = HolidaysManager()
+except ImportError:
+    holidays_manager = None
+
+HOLIDAYS_2026_SET = {
+    "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
+    "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24",
+    "2026-05-25", "2026-06-06", "2026-08-15", "2026-08-17",
+    "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-28",
+    "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25"
+}
+
+def get_school_holiday_set():
+    if not holidays_manager:
+        return set()
+    try:
+        h_list = holidays_manager.get_all_holidays()
+        return {h.get("date") for h in h_list if h.get("date")}
+    except Exception:
+        return set()
+
+def calculate_latest_field_trip_submission_deadline(start_dt: date, required_business_days: int = 2) -> date:
+    """
+    체험학습 시작일(start_dt) 기준, 주말(토/일)과 공휴일, 학교 휴업일을 제외한
+    평일 인정일수 기준 최소 required_business_days(2)일 전 제출 마감일(latest valid submission date)을 반환
+    """
+    school_holidays = get_school_holiday_set()
+    count = 0
+    cur = start_dt - timedelta(days=1)
+
+    while count < required_business_days:
+        day_of_week = cur.weekday()  # 0: Mon, 5: Sat, 6: Sun
+        date_str = cur.strftime("%Y-%m-%d")
+
+        is_weekend = day_of_week in (5, 6)
+        is_statutory = date_str in HOLIDAYS_2026_SET
+        is_school_hol = date_str in school_holidays
+
+        if not is_weekend and not is_statutory and not is_school_hol:
+            count += 1
+            if count == required_business_days:
+                return cur
+
+        cur -= timedelta(days=1)
+
+    return cur
 
 class FormValidator:
     @staticmethod
@@ -74,15 +126,20 @@ class FormValidator:
                         missing_labels.append("담임 확인 일자 (결석종료일로부터 5일 초과)")
                         field_errors["teacher_confirm_day"] = msg
 
-            # B. 교외체험학습 신청서 전용 규칙 (사전 신청 권장)
+            # B. 교외체험학습 신청서 전용 규칙 (체험학습 시작일 기준 평일 2일 전까지 제출)
             elif "field_trip" in template_id:
-                # 시작일과 신청일 비교 (사전 신청이므로 제출일이 시작일보다 늦으면 안내)
                 if sm_start > 0 and sd_start > 0 and sm_sub > 0 and sd_sub > 0:
                     start_dt = date(year, sm_start, sd_start)
                     sub_dt = date(year, sm_sub, sd_sub)
-                    if sub_dt > start_dt:
-                        msg = "교외 체험학습 신청서는 체험학습 시작일 이전에 미리 제출해야 합니다!"
-                        missing_labels.append("신청 제출 일자 (사전 제출 규칙 위반)")
+                    latest_deadline = calculate_latest_field_trip_submission_deadline(start_dt, required_business_days=2)
+
+                    if sub_dt > latest_deadline:
+                        deadline_str = f"{latest_deadline.month}월 {latest_deadline.day}일"
+                        msg = (
+                            f"교외 체험학습 신청서 제출 일자는 체험학습 시작일({sm_start}월 {sd_start}일) 기준 "
+                            f"평일 2일 전인 {deadline_str}까지 제출해야 합니다. (주말·공휴일·학교휴업일 제외)"
+                        )
+                        missing_labels.append(f"신청서 제출 기한 초과 (최대 제출 가능일: {deadline_str})")
                         field_errors["submit_day"] = msg
 
         except (ValueError, TypeError):
